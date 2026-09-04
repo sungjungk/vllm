@@ -18,7 +18,8 @@ def _make_connector(
     backend = Mock()
     backend.handle_preemptions.side_effect = lambda _: events.append("handle")
     backend.bind_connector_metadata.side_effect = lambda _: events.append("bind")
-    backend.start_load_kv.side_effect = lambda *_args, **_kwargs: events.append("start")
+    backend.prepare_forward.side_effect = lambda **_: events.append("prepare")
+    backend.start_load_kv.side_effect = lambda *_, **__: events.append("start")
     backend.wait_for_save.side_effect = lambda: events.append("wait")
     backend.get_finished.side_effect = lambda _: (set(), set())
     backend.get_block_ids_with_load_errors.return_value = set()
@@ -64,11 +65,13 @@ def test_load_start_phase(
 
     connector.pre_forward(output)  # type: ignore[arg-type]
     assert events == (
-        ["handle", "bind", "start"] if has_sync_kv_loads else ["handle", "bind"]
+        ["handle", "bind", "prepare", "start"]
+        if has_sync_kv_loads
+        else ["handle", "bind", "prepare"]
     )
 
     connector.post_forward(set())
-    assert events == ["handle", "bind", "start", "wait", "clear"]
+    assert events == ["handle", "bind", "prepare", "start", "wait", "clear"]
 
 
 def test_no_forward_starts_deferred_load_once(monkeypatch: pytest.MonkeyPatch):
@@ -77,7 +80,7 @@ def test_no_forward_starts_deferred_load_once(monkeypatch: pytest.MonkeyPatch):
 
     connector.no_forward(_scheduler_output(False))  # type: ignore[arg-type]
 
-    assert events == ["handle", "bind", "start", "clear"]
+    assert events == ["handle", "bind", "prepare", "start", "clear"]
 
 
 def test_connector_can_require_pre_forward_start(monkeypatch: pytest.MonkeyPatch):
@@ -87,4 +90,4 @@ def test_connector_can_require_pre_forward_start(monkeypatch: pytest.MonkeyPatch
 
     connector.pre_forward(_scheduler_output(False))  # type: ignore[arg-type]
 
-    assert events == ["handle", "bind", "start"]
+    assert events == ["handle", "bind", "prepare", "start"]

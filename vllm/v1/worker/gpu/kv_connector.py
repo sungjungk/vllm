@@ -94,6 +94,10 @@ class ActiveKVConnector(KVConnector):
         assert kv_connector_metadata is not None
         self.kv_connector.handle_preemptions(kv_connector_metadata)
         self.kv_connector.bind_connector_metadata(kv_connector_metadata)
+        self.kv_connector.prepare_forward(
+            request_state_indices=batch_request_indices,
+            request_ids=batch_request_ids,
+        )
         if (
             scheduler_output.has_sync_kv_loads
             or self.kv_connector.requires_pre_forward_start
