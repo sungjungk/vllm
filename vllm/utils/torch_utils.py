@@ -880,9 +880,15 @@ def weak_ref_tensors(
     raise ValueError("Invalid type for tensors")
 
 
-def get_accelerator_view_from_cpu_tensor(cpu_tensor: torch.Tensor) -> torch.Tensor:
-    """
-    Get an accelerator view of a CPU tensor using Unified Virtual Addressing (UVA).
+def get_accelerator_view_from_cpu_tensor(
+    cpu_tensor: torch.Tensor,
+    *,
+    require_live_view: bool = False,
+) -> torch.Tensor:
+    """Get an accelerator view of a CPU tensor using Unified Virtual Addressing.
+
+    ``require_live_view`` makes callers that require write-through coherence
+    fail closed rather than accepting the detached compatibility fallback.
     """
     from vllm.platforms import current_platform
 
@@ -898,7 +904,7 @@ def get_accelerator_view_from_cpu_tensor(cpu_tensor: torch.Tensor) -> torch.Tens
             cpu_tensor = pinned
         return torch.ops._C.get_xpu_view_from_cpu_tensor(cpu_tensor)
     elif current_platform.is_cuda_alike():
-        return torch.ops._C.get_cuda_view_from_cpu_tensor(cpu_tensor)
+        return torch.ops._C.get_cuda_view_from_cpu_tensor(cpu_tensor, require_live_view)
     else:
         raise ValueError(
             f"`get_accelerator_view_from_cpu_tensor` is currently "

@@ -8,6 +8,7 @@ import pytest
 
 from vllm.v1.core.sched.async_scheduler import AsyncScheduler
 from vllm.v1.core.sched.output import CachedRequestData, SchedulerOutput
+from vllm.v1.engine import FinishReason
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.request import RequestStatus
 from vllm.v1.structured_output import StructuredOutputGrammar
@@ -16,6 +17,26 @@ from vllm.v1.utils import ConstantList
 from .utils import create_requests, create_scheduler
 
 pytestmark = pytest.mark.cpu_test
+
+
+def test_placeholder_underflow_finishes_request_with_error():
+    scheduler = create_scheduler(async_scheduling=True)
+    request = create_requests(num_requests=1, num_tokens=4, max_tokens=8)[0]
+    request.resumable = True
+    scheduler.add_request(request)
+    output = scheduler.schedule()
+    assert request.num_output_placeholders == 1
+
+    runner_output = _make_model_runner_output(output)
+    runner_output.sampled_token_ids = [[100, 101, 102]]
+    scheduler.update_from_output(output, runner_output)
+
+    assert request.status == RequestStatus.FINISHED_ERROR
+    assert request.get_finished_reason() == FinishReason.ERROR
+    assert request.num_output_placeholders == 0
+    assert request.resumable is False
+    assert request.request_id not in scheduler.requests
+    assert request not in scheduler.running
 
 
 def _make_model_runner_output(

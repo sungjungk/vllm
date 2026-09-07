@@ -72,3 +72,20 @@ def get_device_name_as_file_name(device_id: int = 0) -> str:
     name = current_platform.get_device_name(device_id)
     name = re.sub(r"[\s/]+", "_", name)
     return name
+
+
+def verify_uva_coherence() -> None:
+    """Fail when a pinned Host tensor is not a live GPU-visible alias."""
+    from vllm.utils.torch_utils import get_accelerator_view_from_cpu_tensor
+
+    probe = torch.zeros(8, dtype=torch.int32, device="cpu", pin_memory=True)
+    gpu_view = get_accelerator_view_from_cpu_tensor(probe, require_live_view=True)
+    pattern = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.int32, device="cpu")
+    probe[:] = pattern
+    readback = gpu_view.cpu()
+    if not torch.equal(readback, pattern):
+        raise RuntimeError(
+            "UVA coherence check failed: a CPU write to pinned memory is not "
+            "visible through the device view. Expected "
+            f"{pattern.tolist()}, got {readback.tolist()}."
+        )
