@@ -25,24 +25,32 @@ torch::stable::Tensor get_cuda_view_from_cpu_tensor(
     return torch::stable::empty(cpu_tensor.sizes(), dtype, layout, cuda_dev);
   }
 
-  // Let CUDA determine whether the pointer has a valid zero-copy mapping.
-  // Under GPU Confidential Computing torch may classify a genuinely pinned
-  // pointer as Managed, making aten::is_pinned return false even though this
-  // call succeeds.
+  // CUDA can classify CC pinned allocations as Managed, for which
+  // aten::is_pinned is false. With HMM, mapping can also succeed for ordinary
+  // unregistered storage, which must retain the detached fallback contract.
   void* host_ptr = const_cast<void*>(cpu_tensor.mutable_data_ptr());
+  cudaPointerAttributes attributes{};
+  cudaError_t err = cudaPointerGetAttributes(&attributes, host_ptr);
+  STD_TORCH_CHECK(err == cudaSuccess || err == cudaErrorInvalidValue,
+                  "cudaPointerGetAttributes failed with unexpected error: ",
+                  cudaGetErrorString(err));
+  const bool registered =
+      err == cudaSuccess && attributes.type != cudaMemoryTypeUnregistered;
   void* device_ptr = nullptr;
-  cudaError_t err = cudaHostGetDevicePointer(&device_ptr, host_ptr, 0);
-  if (err == cudaSuccess) {
+  if (registered) {
+    err = cudaHostGetDevicePointer(&device_ptr, host_ptr, 0);
+  }
+  if (registered && err == cudaSuccess) {
     return torch::stable::from_blob(
         device_ptr, cpu_tensor.sizes(), cpu_tensor.strides(), cuda_dev, dtype,
         [base = cpu_tensor](void*) {});  // keep cpu tensor alive
   }
 
-  STD_TORCH_CHECK(err == cudaErrorInvalidValue,
+  STD_TORCH_CHECK(err == cudaSuccess || err == cudaErrorInvalidValue,
                   "cudaHostGetDevicePointer failed with unexpected error: ",
                   cudaGetErrorString(err));
-  // Clear the non-fatal mapping error before either throwing or falling back.
-  cudaGetLastError();
+  // Clear a non-fatal attribute/mapping error before throwing or falling back.
+  if (err != cudaSuccess) cudaGetLastError();
 
   STD_TORCH_CHECK(!require_live_view,
                   "get_cuda_view_from_cpu_tensor: host memory is not "

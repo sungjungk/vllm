@@ -133,3 +133,8 @@ def test_detached_fallback_without_require_live_view(device):
     assert cuda_view.device.type == "cuda"
     expected = torch.tensor([1, 2, 3, 4], dtype=torch.int32, device="cpu")
     assert torch.equal(cuda_view.cpu(), expected)
+    cpu_tensor.fill_(9)
+    assert torch.equal(cuda_view.cpu(), expected)
+    cuda_view.add_(1)
+    torch.accelerator.synchronize()
+    assert torch.all(cpu_tensor == 9)
